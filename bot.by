@@ -1,0 +1,63 @@
+import os
+import subprocess
+import telebot
+
+TOKEN = "8801194121:AAGrGJlsPXZ6ZlVpbv9x_QJpDuCmBrY97VE"
+bot = telebot.TeleBot(TOKEN)
+
+@bot.message_handler(commands=['start'])
+def send_welcome(message):
+    bot.reply_to(message, "أهلاً بك! استوديو السحاب الآلي جاهز الآن لخدمتك 24/7.")
+
+@bot.message_handler(content_types=['video'])
+def handle_video(message):
+    bot.reply_to(message, "⏳ جاري استلام الفيديو على السيرفر وتقسيمه ومعالجته للريلز...")
+    
+    try:
+        file_info = bot.get_file(message.video.file_id)
+        downloaded_file = bot.download_file(file_info.file_path)
+        
+        input_path = "input_video.mp4"
+        with open(input_path, 'wb') as new_file:
+            new_file.write(downloaded_file)
+            
+        segment_duration = 15  # مدة كل مقطع ريلز بالثواني
+        output_pattern = "output_part_%03d.mp4"
+        
+        # تنظيف أي ملفات قديمة بالسيرفر
+        for f in os.listdir('.'):
+            if f.startswith("output_part_") and f.endswith(".mp4"):
+                os.remove(f)
+
+        # أمر FFmpeg لتقسيم الفيديو وضبط الأبعاد إلى 9:16 عمودي للريلز
+        command = [
+            "ffmpeg", "-y", "-i", input_path,
+            "-vf", "scale=480:854,fps=30",
+            "-c:v", "libx264", "-crf", "28",
+            "-c:a", "aac", "-b:a", "64k",
+            "-f", "segment", "-segment_time", str(segment_duration),
+            "-reset_timestamps", "1",
+            output_pattern
+        ]
+        
+        subprocess.run(command)
+        
+        parts = sorted([f for f in os.listdir('.') if f.startswith("output_part_") and f.endswith(".mp4")])
+        
+        if not parts:
+            bot.reply_to(message, "❌ حدث خطأ ولم يتم تقسيم الفيديو.")
+            return
+
+        bot.reply_to(message, f"📤 تم تقطيع الفيديو إلى {len(parts)} مقاطع. جاري إرسالها تباعاً...")
+        
+        for i, part in enumerate(parts):
+            with open(part, 'rb') as vid:
+                bot.send_video(message.chat.id, vid, caption=f"جزء رقم {i+1} 🎬 - جاهز للريلز!")
+                
+        bot.reply_to(message, "✅ تم إرسال كافة الأجزاء بنجاح من السيرفر السحابي!")
+
+    except Exception as e:
+        bot.reply_to(message, f"❌ حدث خطأ برمجي: {str(e)}")
+
+print("🤖 البوت السحابي يعمل الآن...")
+bot.infinity_polling()
